@@ -287,12 +287,11 @@ if not is_valid:
     st.stop()
 
 # Create tabs for different visualizations
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Equilibrium Position", 
     "Flow Field", 
     "Force Contours",
     "Background Flow", 
-    "Multi-particle Analysis",
     "Particle Migration",
     "Parameter Sweep",
     "Performance Metrics"
@@ -336,15 +335,6 @@ if st.sidebar.button("Calculate Equilibrium Position", type="primary"):
                     aspect_ratio, grid_resolution
                 )
             st.session_state.flow_field = flow_field
-            
-            # If multiple particles are requested, calculate their positions too
-            if num_particles > 1:
-                with st.spinner(f"Calculating equilibrium for {num_particles} particles..."):
-                    multi_results = sweep.simulate_multi_particles(
-                        num_particles, particle_radius, Um, ell, aspect_ratio,
-                        search_resolution=search_resolution
-                    )
-                st.session_state.multi_results = multi_results
             
             # Setup the particle migration simulator for trajectory calculations
             with st.spinner("Setting up migration simulator..."):
@@ -426,9 +416,6 @@ if 'equilibrium_found' in st.session_state and st.session_state.equilibrium_foun
         fig_eq = viz.plot_equilibrium_position(x_eq, y_eq, particle_radius, ell, aspect_ratio, force_field)
         st.pyplot(fig_eq)
         
-        # Add downloadable report section
-        st.subheader("📊 Download Equilibrium Position Report")
-        
         # Create the stability analysis if not already done
         if 'stability_results' not in st.session_state:
             with st.spinner("Performing stability analysis..."):
@@ -451,251 +438,6 @@ if 'equilibrium_found' in st.session_state and st.session_state.equilibrium_foun
         # Show summary statistics
         st.write(f"Total equilibrium positions found: **{len(stability_results)}**")
         st.write(f"Stable equilibrium positions: **{len(stable_positions)}**")
-        
-        # Create a comprehensive report
-        report_text = f"""=========================================================
-COMPREHENSIVE PARTICLE FOCUSING ANALYSIS REPORT
-=========================================================
-Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}
-
-EXPERIMENTAL SETUP
------------------
-Microfluidic Channel:
-- Channel Width: {channel_width_um} μm
-- Channel Height: {height_um} μm
-- Hydraulic Diameter: {2*channel_width_um*height_um/(channel_width_um+height_um):.2f} μm
-- Aspect Ratio (H/W): {aspect_ratio:.4f}
-
-Flow Conditions:
-- Maximum Flow Velocity: {Um_mps:.4f} m/s
-- Reynolds Number (Re): {Re_calculated:.4f}
-- Fluid Density: {density:.1f} kg/m³
-- Fluid Viscosity: {viscosity:.6f} Pa·s
-
-Particle Properties:
-- Particle Radius: {particle_radius*ell*channel_width_um:.2f} μm
-- Particle Diameter to Channel Width Ratio: {2*particle_radius:.4f}
-- Confinement Ratio (2a/Dh): {2*particle_radius*channel_width_um/(2*channel_width_um*height_um/(channel_width_um+height_um)):.4f}
-- Particle Reynolds Number (Rep): {Re_calculated*(2*particle_radius)**2:.4f}
-
-FOCUSING ANALYSIS SUMMARY
-------------------------
-- Total Equilibrium Positions: {len(stability_results)}
-- Stable Focusing Positions: {len(stable_positions)} 
-- Unstable Positions: {len([r for r in stability_results if r["stability_type"] == "unstable"])}
-- Saddle Points: {len([r for r in stability_results if r["stability_type"] == "saddle"])}
-
-Modeling Method:
-- Force calculation method: Asymptotic Equilibrium Method with Lift Force Approximation
-- Stability analysis: Hessian Matrix Eigenvalue Analysis
-- Aspect Ratio Correction: {"Applied" if use_ar_correction else "Not Applied"} (Zhou & Papautsky model)
-- Model validity: Most accurate for {min(10, int(Re_calculated))} < Re < {max(100, int(Re_calculated*2))} and particle size ratio < 0.3
-
-PREDICTED STABLE FOCUSING POSITIONS
----------------------------------
-"""
-        
-        # Add all stable positions with detailed analysis
-        for i, result in enumerate(stable_positions):
-            pos = result["position"]
-            norm_pos = result["normalized_position"]
-            group_size = result.get("group_size", 1)
-            
-            # Calculate actual physical coordinates in micrometers
-            x_physical = pos[0] * channel_width_um / 2  # Convert from normalized to physical
-            y_physical = pos[1] * height_um / 2  # Convert from normalized to physical
-            
-            # Calculate distance from centerline and walls
-            x_dist_from_center = abs(pos[0])
-            y_dist_from_center = abs(pos[1])
-            x_dist_from_wall = ell - abs(pos[0])
-            y_dist_from_wall = ell * aspect_ratio - abs(pos[1]) if aspect_ratio >= 1.0 else ell - abs(pos[1])
-            
-            # Physical distance from walls (μm)
-            x_wall_dist_um = x_dist_from_wall * channel_width_um / 2
-            y_wall_dist_um = y_dist_from_wall * height_um / 2
-            
-            # Add position header with physical coordinates
-            report_text += f"Position {i+1}: [{pos[0]:.6f}, {pos[1]:.6f}] ({x_physical:.2f} μm, {y_physical:.2f} μm)\n"
-            report_text += f"{'=' * 60}\n"
-            
-            # Add normalized coordinates
-            report_text += f"Normalized coordinates: [{norm_pos[0]:.6f}, {norm_pos[1]:.6f}]\n"
-            
-            # Add physical analysis
-            report_text += f"Distance from center: x={x_dist_from_center*channel_width_um/2:.2f} μm, y={y_dist_from_center*height_um/2:.2f} μm\n"
-            report_text += f"Distance from walls: x={x_wall_dist_um:.2f} μm, y={y_wall_dist_um:.2f} μm\n"
-            
-            # Calculate local flow velocity at equilibrium (relative to max velocity)
-            local_velocity = pp.background_flow(pos[0], pos[1], ell, Um, aspect_ratio)
-            report_text += f"Relative flow velocity at position: {local_velocity:.4f} (fraction of maximum)\n"
-            
-            # Add focusing strength analysis based on eigenvalues
-            if "eigenvalues" in result:
-                eigenvalues = result["eigenvalues"]
-                focusing_strength = min(abs(eigenvalues[0]), abs(eigenvalues[1]))
-                
-                # Interpret focusing strength
-                if focusing_strength < 1e-2:
-                    strength_desc = "Very weak (particles may take long to reach this position)"
-                elif focusing_strength < 1e-1:
-                    strength_desc = "Moderate (typical focusing behavior)"
-                else:
-                    strength_desc = "Strong (rapid particle migration to this position)"
-                    
-                report_text += f"Focusing strength: {focusing_strength:.6e} - {strength_desc}\n"
-                report_text += f"Eigenvalues: [{eigenvalues[0]:.6e}, {eigenvalues[1]:.6e}]\n"
-            
-            # Add group information if applicable
-            if group_size > 1:
-                report_text += f"Note: This position represents {group_size} nearby equilibrium points\n"
-                report_text += f"      that have been grouped due to their proximity.\n"
-            
-            # Add applications based on position
-            if abs(norm_pos[0]) > 0.7 and abs(norm_pos[1]) > 0.7:  # Near corners
-                report_text += "\nApplication Notes: Corner focusing - suitable for high-throughput separation\n"
-                report_text += "                  with high purity but potentially reduced efficiency.\n"
-            elif abs(norm_pos[0]) > 0.7:  # Near sides
-                report_text += "\nApplication Notes: Side-wall focusing - good for particle concentration and\n"
-                report_text += "                  flow cytometry applications.\n"
-            elif abs(norm_pos[1]) > 0.7:  # Near top/bottom
-                report_text += "\nApplication Notes: Top/bottom wall focusing - suitable for parallelization\n"
-                report_text += "                  and stacking of channels.\n"
-            else:  # More central
-                report_text += "\nApplication Notes: Central region focusing - ideal for particle manipulation\n"
-                report_text += "                  and observation with reduced wall effects.\n"
-            
-            report_text += "\n"
-        
-        # Add experimental suggestions
-        report_text += f"""
-EXPERIMENTAL RECOMMENDATIONS
----------------------------
-Based on the simulation results, the following recommendations may improve experimental outcomes:
-
-1. Channel Design:
-   - Optimal aspect ratio for this particle size appears to be: {aspect_ratio:.2f}
-   - Minimum channel length required: approximately {int(100*channel_width_um)} μm
-     (based on focusing length L ~ π·w²/2a·Re, where w is channel width and a is particle radius)
-
-2. Flow Conditions:
-   - Recommend operating in the range of Re = {max(1, int(Re_calculated*0.7))} to {int(Re_calculated*1.3)}
-   - For the current channel dimensions, this corresponds to flow rates of 
-     approximately {Um_mps*60*channel_width_um*height_um*1e-12:.2f} to {Um_mps*60*1.3*channel_width_um*height_um*1e-12:.2f} μL/min
-
-3. Particle Considerations:
-   - Optimal particle size ratio (a/w): {particle_radius:.3f}
-   - For polydisperse samples, focusing positions may vary with particle size
-   - Recommend using particles with CV < 5% for consistent focusing
-
-4. Practical Considerations:
-   - Allow sufficient channel length for complete focusing
-   - Consider using buffer solution with matching density to minimize sedimentation
-   - Channel surface properties may affect focusing performance
-"""
-        
-        # Add modeling details and aspect ratio correction info
-        report_text += f"""
-MODELING DETAILS
----------------
-Force Model Specifics:
-- Primary forces: Inertial lift forces (shear-gradient and wall-induced)
-- Secondary forces: Rotation-induced lift force
-- Neglected forces: Particle-particle interactions, Dean flow (in straight channels)
-- Key assumption: Force scales with Re·(a/h)⁴ for small particles
-
-Stability Analysis Method:
-- Approach: Potential energy landscape construction from force fields
-- Stability criteria: Eigenvalue analysis of Hessian matrix
-- Stable equilibrium: All eigenvalues positive (energy minimum)
-- Unstable equilibrium: All eigenvalues negative (energy maximum)
-- Saddle point: Mixed positive/negative eigenvalues
-
-"""
-        
-        # Add aspect ratio correction info if used
-        if use_ar_correction:
-            report_text += f"""Aspect Ratio Correction Details:
-- Model: Zhou & Papautsky (2013) two-stage focusing model
-- Reference Aspect Ratio: {reference_ar}
-- CL- (Negative Lift Coefficient): {cl_neg}
-- CL+ (Positive Lift Coefficient): {cl_pos}
-- Correction factor: K(AR) = (H/W² + W/H²) / (H_ref/W_ref² + W_ref/H_ref²)
-"""
-        
-        # Also create a CSV format for detailed data analysis
-        csv_header = "position_id,x,y,x_normalized,y_normalized,x_physical_um,y_physical_um,"
-        csv_header += "stability_type,eigenvalue1,eigenvalue2,focusing_strength,"
-        csv_header += "dist_from_center_x_um,dist_from_center_y_um,dist_from_wall_x_um,dist_from_wall_y_um,"
-        csv_header += "local_velocity_ratio,group_size,particle_radius_um,aspect_ratio,Reynolds_number\n"
-        
-        csv_data = csv_header
-        
-        # Add all positions (not just stable ones) to CSV for comprehensive analysis
-        for i, result in enumerate(stability_results):
-            pos = result["position"]
-            norm_pos = result["normalized_position"]
-            stability_type = result["stability_type"]
-            group_size = result.get("group_size", 1)
-            
-            # Calculate physical values for each position
-            x_physical = pos[0] * channel_width_um / 2
-            y_physical = pos[1] * height_um / 2
-            
-            # Calculate distance metrics
-            x_dist_from_center = abs(pos[0]) * channel_width_um / 2
-            y_dist_from_center = abs(pos[1]) * height_um / 2
-            
-            x_dist_from_wall = (ell - abs(pos[0])) * channel_width_um / 2
-            y_dist_from_wall = (ell * aspect_ratio - abs(pos[1])) * height_um / 2 if aspect_ratio >= 1.0 else (ell - abs(pos[1])) * height_um / 2
-            
-            # Calculate local flow velocity
-            local_velocity = pp.background_flow(pos[0], pos[1], ell, Um, aspect_ratio)
-            
-            # Get eigenvalues and focusing strength if available
-            if "eigenvalues" in result:
-                eigenvalues = result["eigenvalues"]
-                ev1, ev2 = eigenvalues
-                focusing_strength = min(abs(ev1), abs(ev2))
-            else:
-                ev1, ev2 = "NA", "NA"
-                focusing_strength = "NA"
-            
-            # Calculate particle radius in physical units
-            particle_radius_um = particle_radius * channel_width_um / 2
-                
-            # Add to CSV - first the basic position information
-            csv_data += f"{i+1},{pos[0]:.6f},{pos[1]:.6f},{norm_pos[0]:.6f},{norm_pos[1]:.6f},"
-            csv_data += f"{x_physical:.6f},{y_physical:.6f},"
-            
-            # Then the stability analysis
-            csv_data += f"{stability_type},{ev1:.6e},{ev2:.6e},{focusing_strength},"
-            
-            # Then the physical metrics
-            csv_data += f"{x_dist_from_center:.6f},{y_dist_from_center:.6f},{x_dist_from_wall:.6f},{y_dist_from_wall:.6f},"
-            
-            # Finally the other key parameters
-            csv_data += f"{local_velocity:.6f},{group_size},{particle_radius_um:.6f},{aspect_ratio:.6f},{Re_calculated:.6f}\n"
-        
-        # Create a two-column layout for download buttons
-        col1, col2 = st.columns(2)
-        
-        # Create download buttons in each column
-        with col1:
-            st.download_button(
-                label="📄 Download Report (Text)",
-                data=report_text,
-                file_name=f"equilibrium_positions_AR{aspect_ratio:.2f}_Re{Re_calculated:.2f}.txt",
-                mime="text/plain"
-            )
-        
-        with col2:
-            st.download_button(
-                label="📊 Download Data (CSV)",
-                data=csv_data,
-                file_name=f"equilibrium_data_AR{aspect_ratio:.2f}_Re{Re_calculated:.2f}.csv",
-                mime="text/csv"
-            )
         
         # Display normalized position
         if aspect_ratio >= 1.0:
@@ -936,106 +678,9 @@ Stability Analysis Method:
         
         st.write(f"Flow velocity at ({x_point:.3f}, {y_point:.3f}): {flow_at_point:.4f}")
         st.write(f"Velocity gradient at this point: ∂u/∂x = {gradient[0]:.4f}, ∂u/∂y = {gradient[1]:.4f}")
-        
-    # Display multi-particle analysis tab
-    with tab5:
-        st.subheader("Multi-Particle Analysis")
-        
-        if 'multi_results' in st.session_state and num_particles > 1:
-            multi_results = st.session_state.multi_results
-            
-            # Show number of particles found
-            num_found = len(multi_results['positions'])
-            st.write(f"Found {num_found} out of {num_particles} equilibrium positions.")
-            
-            # Create a table of equilibrium positions
-            positions_data = []
-            for i, pos in enumerate(multi_results['positions']):
-                positions_data.append({
-                    "Particle": i+1,
-                    "X Position": f"{pos[0]:.4f}",
-                    "Y Position": f"{pos[1]:.4f}"
-                })
-            
-            st.dataframe(positions_data)
-            
-            # Plot all particles in the channel
-            fig, ax = plt.subplots(figsize=(10, 10 * aspect_ratio))
-            
-            # Calculate channel dimensions
-            if aspect_ratio >= 1.0:
-                width = 2 * ell
-                height = 2 * ell * aspect_ratio
-            else:
-                height = 2 * ell
-                width = 2 * ell / aspect_ratio
-            
-            # Draw channel
-            rect = plt.Rectangle((-width/2, -height/2), width, height, 
-                              facecolor='none', edgecolor='black', linestyle='-')
-            ax.add_patch(rect)
-            
-            # Draw centerlines
-            ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-            ax.axvline(x=0, color='gray', linestyle='--', alpha=0.5)
-            
-            # Plot each particle
-            import matplotlib.cm as cm
-            colors = cm.rainbow(np.linspace(0, 1, num_found))
-            
-            for i, pos in enumerate(multi_results['positions']):
-                circle = plt.Circle((pos[0], pos[1]), particle_radius, 
-                                  color=colors[i], alpha=0.7, label=f"Particle {i+1}")
-                ax.add_patch(circle)
-                ax.text(pos[0], pos[1], str(i+1), 
-                      ha='center', va='center', color='white', fontweight='bold')
-            
-            # Set axis limits with some margin
-            margin = 0.1 * max(width, height)
-            ax.set_xlim(-width/2 - margin, width/2 + margin)
-            ax.set_ylim(-height/2 - margin, height/2 + margin)
-            
-            # Set labels and title
-            ax.set_xlabel('x position')
-            ax.set_ylabel('y position')
-            ax.set_title(f'Equilibrium Positions for {num_found} Particles')
-            ax.set_aspect('equal')
-            
-            st.pyplot(fig)
-            
-            # Add analysis of inter-particle distances
-            if num_found > 1:
-                st.subheader("Inter-Particle Distances")
-                
-                distances = []
-                for i in range(num_found):
-                    for j in range(i+1, num_found):
-                        pos_i = multi_results['positions'][i]
-                        pos_j = multi_results['positions'][j]
-                        dist = np.sqrt((pos_i[0] - pos_j[0])**2 + (pos_i[1] - pos_j[1])**2)
-                        distances.append({
-                            "Particle Pair": f"{i+1}-{j+1}",
-                            "Distance": f"{dist:.4f}",
-                            "Normalized Distance": f"{dist/(2*particle_radius):.4f} (diameters)"
-                        })
-                
-                st.dataframe(distances)
-                
-                # Plot histogram of distances
-                if len(distances) > 1:
-                    dist_values = [float(d["Distance"]) for d in distances]
-                    fig, ax = plt.subplots()
-                    ax.hist(dist_values, bins='auto')
-                    ax.set_xlabel('Inter-Particle Distance')
-                    ax.set_ylabel('Frequency')
-                    ax.set_title('Distribution of Inter-Particle Distances')
-                    ax.grid(True)
-                    st.pyplot(fig)
-        else:
-            st.info("Multi-particle analysis requires more than one particle. Adjust the 'Number of Particles' parameter and run the calculation.")
             
     # Display particle migration tab
-    with tab6:
+    with tab5:
         st.subheader("Particle Migration Simulation")
         
         if 'migration_simulator' in st.session_state and 'trajectory' in st.session_state:
@@ -1099,7 +744,7 @@ Stability Analysis Method:
             st.info("Migration simulation data not available. Run the calculation first.")
     
     # Display parameter sweep tab
-    with tab7:
+    with tab6:
         st.subheader("Parameter Sweep Analysis")
         
         if 'sweep_results' in st.session_state:
@@ -1159,7 +804,7 @@ Stability Analysis Method:
             st.info("Parameter sweep data not available. Click 'Run Parameter Sweep' in the sidebar to perform a sweep analysis.")
     
     # Display performance metrics tab
-    with tab8:
+    with tab7:
         st.subheader("Performance Metrics")
         
         # Get performance metrics from the physics module
