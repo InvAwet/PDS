@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import time
-#
+
 # Import local modules
 import particle_solver as solver
 import particle_physics as pp
@@ -222,7 +222,7 @@ with st.sidebar.expander("Solver Parameters", expanded=True):
     migration_simulation_time = st.slider(
         "Migration Simulation Time", 
         min_value=5.0, 
-        max_value=100.0, 
+        max_value=1000.0,  # Changed from 100 to 1000
         value=50.0, 
         step=5.0,
         help="Maximum time for particle migration simulation."
@@ -287,14 +287,13 @@ if not is_valid:
     st.stop()
 
 # Create tabs for different visualizations
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Equilibrium Position", 
     "Flow Field", 
     "Force Contours",
     "Background Flow", 
     "Particle Migration",
-    "Parameter Sweep",
-    "Performance Metrics"
+    "Parameter Sweep"
 ])
 
 # Button to run simulation
@@ -363,38 +362,23 @@ if st.sidebar.button("Calculate Equilibrium Position", type="primary"):
             st.session_state.equilibrium_found = False
 
 # Run parameter sweep if requested
-if st.sidebar.button("Run Parameter Sweep"):
-    param_to_sweep = st.sidebar.selectbox(
-        "Parameter to Sweep",
-        ["aspect_ratio", "particle_radius"],
-        help="Select which parameter to vary in the sweep"
-    )
-    
+if st.sidebar.button("Run Particle Radius Sweep"):
     num_points = st.sidebar.slider(
         "Number of Points", 
         min_value=3, 
         max_value=15, 
         value=8,
-        help="Number of parameter values to test"
+        help="Number of particle radius values to test"
     )
     
-    with st.spinner(f"Running parameter sweep for {param_to_sweep}..."):
-        if param_to_sweep == "aspect_ratio":
-            # Sweep aspect ratio from 0.5 to 2.0
-            param_values = np.linspace(0.5, 2.0, num_points)
-            sweep_results = sweep.parameter_sweep(
-                param_to_sweep, param_values, particle_radius, Um, ell, aspect_ratio,
-                search_resolution=search_resolution
-            )
-            
-        elif param_to_sweep == "particle_radius":
-            # Sweep particle radius from 0.05 to 0.4
-            param_values = np.linspace(0.05, 0.4, num_points)
-            sweep_results = sweep.parameter_sweep(
-                param_to_sweep, param_values, particle_radius, Um, ell, aspect_ratio,
-                search_resolution=search_resolution
-            )
-            
+    with st.spinner("Running particle radius sweep..."):
+        # Sweep particle radius from 0.05 to 0.4
+        param_values = np.linspace(0.05, 0.4, num_points)
+        sweep_results = sweep.parameter_sweep(
+            "particle_radius", param_values, particle_radius, Um, ell, aspect_ratio,
+            search_resolution=search_resolution
+        )
+        
         st.session_state.sweep_results = sweep_results
 
 # Display results if equilibrium was found
@@ -745,13 +729,13 @@ if 'equilibrium_found' in st.session_state and st.session_state.equilibrium_foun
     
     # Display parameter sweep tab
     with tab6:
-        st.subheader("Parameter Sweep Analysis")
+        st.subheader("Particle Radius Sweep Analysis")
         
         if 'sweep_results' in st.session_state:
             sweep_results = st.session_state.sweep_results
             
             # Display parameter sweep info
-            st.write(f"Parameter swept: {sweep_results['param_name']}")
+            st.write(f"Parameter swept: Particle Radius")
             st.write(f"Number of values tested: {len(sweep_results['param_values'])}")
             
             # Plot sweep results
@@ -764,14 +748,14 @@ if 'equilibrium_found' in st.session_state and st.session_state.equilibrium_foun
                 if sweep_results['positions'][i] is not None:
                     pos = sweep_results['positions'][i]
                     sweep_data.append({
-                        f"{sweep_results['param_name']}": f"{value:.3f}",
+                        "Particle Radius": f"{value:.3f}",
                         "X Position": f"{pos[0]:.4f}",
                         "Y Position": f"{pos[1]:.4f}",
                         "Valid": "Yes"
                     })
                 else:
                     sweep_data.append({
-                        f"{sweep_results['param_name']}": f"{value:.3f}",
+                        "Particle Radius": f"{value:.3f}",
                         "X Position": "N/A",
                         "Y Position": "N/A",
                         "Valid": "No"
@@ -780,101 +764,17 @@ if 'equilibrium_found' in st.session_state and st.session_state.equilibrium_foun
             st.dataframe(sweep_data)
             
             # Add analysis text
-            if sweep_results['param_name'] == 'aspect_ratio':
-                st.write("""
-                **Analysis of Aspect Ratio Effect:**
-                
-                The aspect ratio of the channel (height/width) significantly affects the equilibrium positions 
-                of particles in inertial focusing. In square channels (aspect ratio = 1), particles typically 
-                focus at four symmetric equilibrium positions. As the aspect ratio increases (taller channels),
-                the equilibrium positions tend to migrate toward the longer walls, eventually reducing to two 
-                stable positions in highly rectangular channels.
-                """)
-            elif sweep_results['param_name'] == 'particle_radius':
-                st.write("""
-                **Analysis of Particle Size Effect:**
-                
-                Particle size affects both the magnitude and balance of forces in inertial focusing. Larger 
-                particles experience stronger lift forces (scaling with a² or a³ depending on the regime) and 
-                typically reach equilibrium positions that are closer to the channel center. Very small 
-                particles may focus poorly or require longer channels for complete focusing due to weaker 
-                inertial effects.
-                """)
+            st.write("""
+            **Analysis of Particle Size Effect:**
+            
+            Particle size affects both the magnitude and balance of forces in inertial focusing. Larger 
+            particles experience stronger lift forces (scaling with a² or a³ depending on the regime) and 
+            typically reach equilibrium positions that are closer to the channel center. Very small 
+            particles may focus poorly or require longer channels for complete focusing due to weaker 
+            inertial effects.
+            """)
         else:
-            st.info("Parameter sweep data not available. Click 'Run Parameter Sweep' in the sidebar to perform a sweep analysis.")
-    
-    # Display performance metrics tab
-    with tab7:
-        st.subheader("Performance Metrics")
-        
-        # Get performance metrics from the physics module
-        metrics = pp.performance_metrics
-        
-        # Show function call counts
-        st.write("### Function Call Counts")
-        
-        call_data = []
-        for func_name, count in metrics['function_calls'].items():
-            time = metrics['execution_times'][func_name]
-            avg_time = time / count if count > 0 else 0
-            call_data.append({
-                "Function": func_name,
-                "Calls": count,
-                "Total Time (s)": f"{time:.4f}",
-                "Avg Time (s)": f"{avg_time:.6f}"
-            })
-        
-        # Sort by total time
-        call_data.sort(key=lambda x: float(x["Total Time (s)"]), reverse=True)
-        
-        st.dataframe(call_data)
-        
-        # Plot function call distribution
-        fig, ax = plt.subplots()
-        func_names = [d["Function"] for d in call_data[:8]]  # Top 8 functions
-        call_counts = [float(d["Calls"]) for d in call_data[:8]]
-        
-        bars = ax.bar(func_names, call_counts)
-        ax.set_ylabel('Number of Calls')
-        ax.set_title('Function Call Distribution')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        st.pyplot(fig)
-        
-        # Plot execution time distribution
-        fig, ax = plt.subplots()
-        func_names = [d["Function"] for d in call_data[:8]]  # Top 8 functions
-        exec_times = [float(d["Total Time (s)"]) for d in call_data[:8]]
-        
-        bars = ax.bar(func_names, exec_times)
-        ax.set_ylabel('Execution Time (s)')
-        ax.set_title('Function Execution Time Distribution')
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        st.pyplot(fig)
-        
-        # Show parameter impact if available
-        st.write("### Parameter Impact Analysis")
-        
-        for func_name, param_dict in metrics['parameter_impacts'].items():
-            if param_dict:  # If we have parameter impact data
-                st.write(f"**Function: {func_name}**")
-                
-                for param_name, value_dict in param_dict.items():
-                    if value_dict:  # If we have values for this parameter
-                        impact_data = []
-                        for value, stats in value_dict.items():
-                            avg_time = stats['total_time'] / stats['calls'] if stats['calls'] > 0 else 0
-                            impact_data.append({
-                                "Parameter Value": value,
-                                "Calls": stats['calls'],
-                                "Total Time (s)": f"{stats['total_time']:.4f}",
-                                "Avg Time (s)": f"{avg_time:.6f}"
-                            })
-                        
-                        # Display as a small table
-                        st.write(f"Parameter: {param_name}")
-                        st.dataframe(impact_data, height=150)
+            st.info("Particle radius sweep data not available. Click 'Run Particle Radius Sweep' in the sidebar to perform a sweep analysis.")
 else:
     # Instructions if no calculation has been run yet
     with tab1:
